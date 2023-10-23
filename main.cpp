@@ -8,6 +8,7 @@
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
 #include <windows.h>
+#include <WinUser.h>
 #include <shellapi.h>
 #include <shobjidl.h> 
 #include <d3d11_1.h>
@@ -15,7 +16,9 @@
 #include <d3dcompiler.h>
 #pragma comment(lib, "d3dcompiler.lib")
 
+
 #include <DirectXMath.h>
+#include <string>
 #include <vector>
 #include <chrono>
 #include <thread>
@@ -37,6 +40,10 @@ using namespace DirectX;
 
 static bool global_windowDidResize = false;
 
+// Function to create a popup window for project settings
+bool showProjectSettingsWindow = false;
+
+
 // Input
 enum GameAction {
     GameActionMoveCamFwd,
@@ -53,8 +60,56 @@ enum GameAction {
 };
 static bool global_keyIsDown[GameActionCount] = {};
 
+void RenderProjectSettingsWindow()
+{
+    ImGui::SetNextWindowSize(ImVec2(400, 300), ImGuiCond_FirstUseEver);
+    ImGui::Begin("Project Settings", &showProjectSettingsWindow);
+
+    // Create a combo box to select the rendering engine
+    static int selectedEngine = 0;
+    const char* engines[] = { "DirectX 11", "DirectX 12", "OpenGL ES 3" };
+
+    // Add your project settings controls here
+    ImGui::Combo("Rendering Engine", &selectedEngine, engines, IM_ARRAYSIZE(engines));
+    
+    if (selectedEngine == 0) // DirectX 11
+    {
+
+    }
+    if (selectedEngine == 1) // DirectX 12
+    {
+
+        if (MessageBoxA(0, "This will restart Chrono \n Are you sure you want to switch Renderers ?", "Switching Rendering Engine", MB_YESNO) == IDYES)
+        {
+            exit(0);
+        }
+        if (MessageBoxA(0, "This will restart Chrono \n Are you sure you want to switch Renderers ?", "Switching Rendering Engine", MB_YESNO) == IDNO)
+        {
+            return;
+        }
+       
+        
+    }
+    if (selectedEngine == 2) // OpenGL ES 3
+    {
+        if (MessageBoxA(0, "This will restart Chrono \n Are you sure you want to switch Renderers ?", "Switching Rendering Engine", MB_YESNO) == IDYES)
+        {
+            exit(0);
+        }
+        if (MessageBoxA(0, "This will restart Chrono \n Are you sure you want to switch Renderers ?", "Switching Rendering Engine", MB_YESNO) == IDNO)
+        {
+            return;
+        }
+    }
+
+    ImGui::End();
+}
+
+
+
 bool win32CreateD3D11RenderTargets(ID3D11Device1* d3d11Device, IDXGISwapChain1* swapChain, ID3D11RenderTargetView** d3d11FrameBufferView, ID3D11DepthStencilView** depthBufferView)
 {
+
     ID3D11Texture2D* d3d11FrameBuffer;
     HRESULT hResult = swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&d3d11FrameBuffer);
     assert(SUCCEEDED(hResult));
@@ -430,18 +485,29 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
     // Create Vertex and Index Buffer
     ID3D11Buffer* cubeVertexBuffer;
     ID3D11Buffer* cubeIndexBuffer;
+    ID3D11Buffer* axisVertexBuffer;
+    ID3D11Buffer* axisIndexBuffer;
     UINT cubeNumIndices;
     UINT cubeStride;
     UINT cubeOffset;
+    UINT axisNumIndices;
+    UINT axisStride;
+    UINT axisOffset;
+
     {
         LoadedObj obj = loadObj("cube.obj");
+        LoadedObj axis = loadObj("axis.obj");
         cubeStride = sizeof(VertexData);
         cubeOffset = 0;
         cubeNumIndices = obj.numIndices;
+        axisStride = sizeof(VertexData);
+        axisOffset = 0;
+        axisNumIndices = axis.numIndices;
 
+        // Cube Vertex Buffer
         D3D11_BUFFER_DESC vertexBufferDesc = {};
         vertexBufferDesc.ByteWidth = obj.numVertices * sizeof(VertexData);
-        vertexBufferDesc.Usage     = D3D11_USAGE_IMMUTABLE;
+        vertexBufferDesc.Usage = D3D11_USAGE_IMMUTABLE;
         vertexBufferDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 
         D3D11_SUBRESOURCE_DATA vertexSubresourceData = { obj.vertexBuffer };
@@ -449,16 +515,33 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         HRESULT hResult = d3d11Device->CreateBuffer(&vertexBufferDesc, &vertexSubresourceData, &cubeVertexBuffer);
         assert(SUCCEEDED(hResult));
 
+        // Axis Vertex Buffer
+        vertexBufferDesc.ByteWidth = axis.numVertices * sizeof(VertexData);
+        vertexSubresourceData.pSysMem = axis.vertexBuffer;
+
+        hResult = d3d11Device->CreateBuffer(&vertexBufferDesc, &vertexSubresourceData, &axisVertexBuffer);
+        assert(SUCCEEDED(hResult));
+
+        // Cube Index Buffer
         D3D11_BUFFER_DESC indexBufferDesc = {};
         indexBufferDesc.ByteWidth = obj.numIndices * sizeof(uint16_t);
-        indexBufferDesc.Usage     = D3D11_USAGE_IMMUTABLE;
+        indexBufferDesc.Usage = D3D11_USAGE_IMMUTABLE;
         indexBufferDesc.BindFlags = D3D11_BIND_INDEX_BUFFER;
 
         D3D11_SUBRESOURCE_DATA indexSubresourceData = { obj.indexBuffer };
 
         hResult = d3d11Device->CreateBuffer(&indexBufferDesc, &indexSubresourceData, &cubeIndexBuffer);
         assert(SUCCEEDED(hResult));
+
+        // Axis Index Buffer
+        indexBufferDesc.ByteWidth = axis.numIndices * sizeof(uint16_t);
+        indexSubresourceData.pSysMem = axis.indexBuffer;
+
+        hResult = d3d11Device->CreateBuffer(&indexBufferDesc, &indexSubresourceData, &axisIndexBuffer);
+        assert(SUCCEEDED(hResult));
+
         freeLoadedObj(obj);
+        freeLoadedObj(axis);
     }
 
     // Create Sampler State
@@ -767,6 +850,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
             float modelYRotation = 0.f; // *(float)(M_PI* currentTimeInSeconds);
             for(int i=0; i<NUM_CUBES; ++i)
             {
+                const char* items[] = {""};
+                char name[] = "Cube";
+                
+                
+
+                
                // modelXRotation += 0.6f*i; // Add an offset so cubes have different phases
                // modelYRotation += 0.6f*i;
                 float4x4 modelMat = rotateXMat(modelXRotation) * rotateYMat(modelYRotation) * translationMat(cubePositions[i]);
@@ -799,6 +888,30 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
                                         
                 lightModelViewMats[i] = scaleMat(0.2f) * translationMat(initialPointLightPositions[i].xyz) * rotateYMat(lightRotation) * viewMat;
                 pointLightPosEye[i] = lightModelViewMats[i].cols[3];
+            }
+        }
+
+        //calculate custom models/ added
+        // Calculate matrices for cubes
+        const int NUM_OTHERS = 1;
+        float4x4 otherModelViewMats[NUM_OTHERS];
+        float3x3 otherNormalMats[NUM_OTHERS];
+        {
+            float3 otherPositions[NUM_OTHERS] = {
+               {0.f, 0.f, 0.f},// we will add it to the positions when we create one.
+            };
+
+            float modelXRotation = 0.f; //*(float)(M_PI* currentTimeInSeconds);
+            float modelYRotation = 0.f; // *(float)(M_PI* currentTimeInSeconds);
+            for (int i = 0; i < NUM_OTHERS; ++i)
+            {
+                // modelXRotation += 0.6f*i; // Add an offset so cubes have different phases
+                // modelYRotation += 0.6f*i;
+                float4x4 modelMat = rotateXMat(modelXRotation) * rotateYMat(modelYRotation) * translationMat(otherPositions[i]);
+                float4x4 inverseModelMat = translationMat(-otherPositions[i]) * rotateYMat(-modelYRotation) * rotateXMat(-modelXRotation);
+                otherModelViewMats[i] = modelMat * viewMat;
+                float4x4 inverseModelViewMat = inverseViewMat * inverseModelMat;
+                otherNormalMats[i] = float4x4ToFloat3x3(transpose(inverseModelViewMat));
             }
         }
 
@@ -872,6 +985,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
                 d3d11DeviceContext->Unmap(blinnPhongPSConstantBuffer, 0);
             }
 
+            
             for(int i=0; i<NUM_CUBES; ++i)
             {
                 // Update vertex shader constant buffer
@@ -887,14 +1001,18 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
             }
         }
         
+
         float cameraX = cameraPos.x;
         float cameraY = cameraPos.y;
         float cameraZ = cameraPos.z;
+
 
         float camPitch = cameraPitch;
         float camYaw = cameraYaw;
         
         float bn = brightness;
+
+        bool useSkybox = false;
 
         ImGui::ShowStyleSelector("Style Selector");
         ImGui::Begin("Chrono Engine Scene");
@@ -906,13 +1024,71 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         ImGui::Text("Pitch: %.3f", camPitch);
         ImGui::Text("Yaw: %.3f", camYaw);
         ImGui::NewLine();
+        #pragma region Scene Brightness
         ImGui::Text("Scene Brightness:");
         ImGui::SliderFloat("", &bn, 0.5f, 49.99f);
+        #pragma endregion
+
+        #pragma region Scene Sky
+        ImGui::Text("Scene Sky:");
+        if (ImGui::Checkbox("Use Skybox", &useSkybox))
+        {
+            if (ImGui::Button("Choose Skybox"))
+            {
+                HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED |
+                    COINIT_DISABLE_OLE1DDE);
+                if (SUCCEEDED(hr))
+                {
+                    IFileOpenDialog* pFileOpen;
+
+                    // Create the FileOpenDialog object.
+                    hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_ALL,
+                        IID_IFileOpenDialog, reinterpret_cast<void**>(&pFileOpen));
+
+                    if (SUCCEEDED(hr))
+                    {
+                        // Show the Open dialog box.
+                        hr = pFileOpen->Show(NULL);
+
+                        // Get the file name from the dialog box.
+                        if (SUCCEEDED(hr))
+                        {
+                            IShellItem* pItem;
+                            hr = pFileOpen->GetResult(&pItem);
+                            if (SUCCEEDED(hr))
+                            {
+                                PWSTR pszFilePath;
+                                hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszFilePath);
+
+                                // Display the file name to the user.
+                                if (SUCCEEDED(hr))
+                                {
+                                    MessageBoxW(NULL, pszFilePath, L"File Path", MB_OK);
+                                    CoTaskMemFree(pszFilePath);
+                                }
+                                pItem->Release();
+                            }
+                        }
+                        pFileOpen->Release();
+                    }
+                    CoUninitialize();
+                }
+            }
+        }
+        ImGui::SliderFloat("Red", &backgroundColor[0], 0.f, 1.f);
+        ImGui::SliderFloat("Green", &backgroundColor[1], 0.f, 1.f);
+        ImGui::SliderFloat("Blue", &backgroundColor[2], 0.f, 1.f);
+        ImGui::SliderFloat("Alpha?", &backgroundColor[3], 0.f, 1.f);
+#pragma endregion
+
 
 
         ImGui::Begin("Scene Hierachy");
         const char* items[] = { "Cube", "Light" };
+        const char* renderers[] = { "OpenGLES3", "DirectX 12", "DirectX 11"};
         static const char* current_item = NULL;
+        static const char* renderers_current_item = "DirectX 11";
+
 
         if (ImGui::BeginCombo("##Create New Item", current_item)) // The second parameter is the label previewed before opening the combo.
         {
@@ -935,16 +1111,20 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
             }
         }*/
 
+      // ImGui::ShowDemoWindow();
+
         ImGui::BeginMainMenuBar();
         {
             if (ImGui::BeginMenu("File"))
             {
-               
-                ImGui::EndMenu();
-            }
-            if (ImGui::BeginMenu("View"))
-            {
+                if (ImGui::MenuItem("Project Settings")) {
+                    showProjectSettingsWindow = true;
 
+                   
+                }
+
+                ImGui::MenuItem("Save");
+                ImGui::MenuItem("Save As..");
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Tools"))
@@ -956,7 +1136,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
             {
                 if (ImGui::Button("Documentation"))
                 {
-                    ShellExecute(0, 0, L"http://www.google.com", 0, 0, SW_SHOW);
+                    ShellExecute(0, 0, L"https://github.com/NanoDogs-Studios/ChronoEngine/wiki", 0, 0, SW_SHOW);
                 }
                 ImGui::EndMenu();
             }
@@ -998,7 +1178,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         {
             ImGui::Text("%.3f m/s | %.1f FPS", 1000.0f / io.Framerate, io.Framerate);
         }
-
+        if (showProjectSettingsWindow) {
+            RenderProjectSettingsWindow();
+        }
 
         ImGui::Begin("Project Assets");
         if (ImGui::Button("Add Item to project"))
@@ -1056,9 +1238,14 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         d3d11SwapChain->Present(0, 0);
     }
 
+
+
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
 
     return 0;
+
+
 }
+
