@@ -1091,7 +1091,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         static int current_item = 0;
 
 
-        if (ImGui::BeginListBox("", ImGui::GetWindowSize())
+        if (ImGui::BeginListBox("", ImGui::GetWindowSize()))
         {
             for (int n = 0; n < IM_ARRAYSIZE(items); n++)
             {
