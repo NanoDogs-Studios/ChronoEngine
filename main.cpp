@@ -1087,23 +1087,23 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
 
 
         ImGui::Begin("Scene Hierachy");
-        const char* items[] = { "Cube", "Light" };
-        const char* renderers[] = { "OpenGLES3", "DirectX 12", "DirectX 11"};
-        static const char* current_item = NULL;
-        static const char* renderers_current_item = "DirectX 11";
+        const char* items[] = { "Cube 0", "Cube 1", "Cube 2", "Cube 3", "Main Light" };
+        static int current_item = 0;
 
 
-        if (ImGui::BeginCombo("##Create New Item", current_item)) // The second parameter is the label previewed before opening the combo.
+        if (ImGui::BeginListBox("", ImGui::GetWindowSize())
         {
             for (int n = 0; n < IM_ARRAYSIZE(items); n++)
             {
-                bool is_selected = (current_item == items[n]); // You can store your selection however you want, outside or inside your objects
+                const bool is_selected = (current_item == n);
                 if (ImGui::Selectable(items[n], is_selected))
-                    current_item = items[n];
-                    if (is_selected)
-                        ImGui::SetItemDefaultFocus();   // You may set the initial focus when opening the combo (scrolling + for keyboard navigation support)
+                    current_item = n;
+
+                // Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
+                if (is_selected)
+                    ImGui::SetItemDefaultFocus();
             }
-            ImGui::EndCombo();
+            ImGui::EndListBox();
         }
 
         /*if (ImGui::Button("Create new Object"))
@@ -1114,7 +1114,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
             }
         }*/
 
-      // ImGui::ShowDemoWindow();
+      ImGui::ShowDemoWindow(); // if you want demo window.
 
         ImGui::BeginMainMenuBar();
         {
@@ -1230,6 +1230,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         ImGui::End();
 
         ImGui::Begin("Console");
+
+        ImGui::TextColored(ImVec4(1, 0, 0, 1), "Some Random Error!");
+        ImGui::TextColored(ImVec4(1, 1, 0, 1), "Some Random Warning.");
+        ImGui::TextColored(ImVec4(1, 1, 1, 1), "Some Random Log");
 
         ImGui::End();
 
