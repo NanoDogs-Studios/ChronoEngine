@@ -51,7 +51,9 @@
     <FxCompile Include="Lights.hlsl" />
   </ItemGroup>
   <ItemGroup>
-    <Image Include="crate.png" />
+    <Image Include="crate.png">
+      <DeploymentContent>true</DeploymentContent>
+    </Image>
     <Image Include="icons\Chrono.ico" />
   </ItemGroup>
   <ItemGroup>
