@@ -43,6 +43,7 @@
     <ClInclude Include="imgui\imstb_textedit.h" />
     <ClInclude Include="imgui\imstb_truetype.h" />
     <ClInclude Include="ObjLoading.h" />
+    <ClInclude Include="resource.h" />
     <ClInclude Include="stb_image.h" />
   </ItemGroup>
   <ItemGroup>
@@ -51,9 +52,13 @@
   </ItemGroup>
   <ItemGroup>
     <Image Include="crate.png" />
+    <Image Include="icons\Chrono.ico" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="ChronoEngine.rc" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>

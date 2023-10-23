@@ -37,6 +37,7 @@ using namespace DirectX;
 #include "ObjLoading.h"
 #include <windowsx.h>
 #include "Hierachy.h"
+#include "resource.h"
 
 static bool global_windowDidResize = false;
 
@@ -220,6 +221,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 
 int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*/, _In_ PSTR /*lpCmdLine*/, _In_ int /*nShowCmd*/)
 {
+    
+
     // Open a window
     HWND hwnd;
     {
@@ -228,11 +231,11 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         winClass.style = CS_HREDRAW | CS_VREDRAW;
         winClass.lpfnWndProc = &WndProc;
         winClass.hInstance = hInstance;
-        winClass.hIcon = LoadIconW(0, IDI_APPLICATION);
+        winClass.hIcon = LoadIcon(hInstance, IDI_APPLICATION);
+
         winClass.hCursor = LoadCursorW(0, IDC_ARROW);
         winClass.lpszClassName = L"ChronoEngine";
         winClass.lpszMenuName = MAKEINTRESOURCE(IDM_MYMENURESOURCE);
-        winClass.hIconSm = LoadIconW(0, IDI_APPLICATION);
 
         if(!RegisterClassExW(&winClass)) {
             MessageBoxA(0, "RegisterClassEx failed", "Fatal Error", MB_OK);
