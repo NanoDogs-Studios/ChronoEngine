@@ -25,6 +25,7 @@
 #include <assert.h>
 #include <stdint.h>
 #include <iostream>
+#include <VersionHelpers.h>  // Include for IsWindowsVersionOrGreater function
 using namespace std;
 using namespace std::this_thread; // sleep_for, sleep_until
 using namespace std::chrono; // nanoseconds, system_clock, seconds
@@ -39,10 +40,70 @@ using namespace DirectX;
 #include "Hierachy.h"
 #include "resource.h"
 
+// Define log levels
+enum class LogLevel { Error, Warning, Info };
+
+// Structure to hold log entries
+struct LogEntry {
+    LogLevel level;
+    std::string message;
+};
+
+class Logger {
+public:
+    // Initialize the logger
+    Logger() {
+        logBufferSize = 100; // Adjust as needed
+        logBuffer.reserve(logBufferSize);
+    }
+
+    // Log a message with a specific log level
+    void Log(LogLevel level, const std::string& message) {
+        LogEntry entry = { level, message };
+        logBuffer.push_back(entry);
+
+        // Keep the log buffer size within the limit
+        while (logBuffer.size() > logBufferSize) {
+            logBuffer.erase(logBuffer.begin());
+        }
+    }
+
+    // Render the console window using ImGui
+    void RenderConsoleWindow() {
+        ImGui::Begin("Console");
+
+        // Add controls to filter logs, clear logs, etc.
+
+        for (const LogEntry& entry : logBuffer) {
+            ImVec4 textColor;
+            if (entry.level == LogLevel::Error) {
+                textColor = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); // Red for errors
+            }
+            else if (entry.level == LogLevel::Warning) {
+                textColor = ImVec4(1.0f, 1.0f, 0.0f, 1.0f); // Yellow for warnings
+            }
+            else {
+                textColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); // White for info
+            }
+
+            ImGui::TextColored(textColor, "%s", entry.message.c_str());
+        }
+
+        ImGui::End();
+    }
+
+private:
+    std::vector<LogEntry> logBuffer;
+    size_t logBufferSize;
+};
+
 static bool global_windowDidResize = false;
 
 // Function to create a popup window for project settings
 bool showProjectSettingsWindow = false;
+
+string items[] = { "" };
+static int current_item = 0;
 
 
 // Input
@@ -61,6 +122,7 @@ enum GameAction {
 };
 static bool global_keyIsDown[GameActionCount] = {};
 
+// Project Settings
 void RenderProjectSettingsWindow()
 {
     ImGui::SetNextWindowSize(ImVec2(400, 300), ImGuiCond_FirstUseEver);
@@ -107,17 +169,17 @@ void RenderProjectSettingsWindow()
 }
 
 
-
+// Creates the render target (your gpu) object
 bool win32CreateD3D11RenderTargets(ID3D11Device1* d3d11Device, IDXGISwapChain1* swapChain, ID3D11RenderTargetView** d3d11FrameBufferView, ID3D11DepthStencilView** depthBufferView)
 {
-
+    // Creates the Frame Buffer
     ID3D11Texture2D* d3d11FrameBuffer;
     HRESULT hResult = swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&d3d11FrameBuffer);
     assert(SUCCEEDED(hResult));
 
     hResult = d3d11Device->CreateRenderTargetView(d3d11FrameBuffer, 0, d3d11FrameBufferView);
     assert(SUCCEEDED(hResult));
-
+    
     ID3D11Buffer* sphereIndexBuffer;
     ID3D11Buffer* sphereVertBuffer;
 
@@ -139,6 +201,7 @@ bool win32CreateD3D11RenderTargets(ID3D11Device1* d3d11Device, IDXGISwapChain1* 
     D3D11_TEXTURE2D_DESC depthBufferDesc;
     d3d11FrameBuffer->GetDesc(&depthBufferDesc);
 
+    // release the frame buffer for rendering
     d3d11FrameBuffer->Release();
 
     depthBufferDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
@@ -149,6 +212,7 @@ bool win32CreateD3D11RenderTargets(ID3D11Device1* d3d11Device, IDXGISwapChain1* 
 
     d3d11Device->CreateDepthStencilView(depthBuffer, nullptr, depthBufferView);
 
+    // release the depth buffer
     depthBuffer->Release();
 
     return true;
@@ -845,20 +909,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
                 {-3.f, 0.f, -1.5f},
                 {4.5f, 0.2f, -3.f},
                 {0.f, -1.5f, 0.f},
-
-          
             };
 
             float modelXRotation = 0.f; //*(float)(M_PI* currentTimeInSeconds);
             float modelYRotation = 0.f; // *(float)(M_PI* currentTimeInSeconds);
             for(int i=0; i<NUM_CUBES; ++i)
             {
-                const char* items[] = {""};
-                char name[] = "Cube";
-                
-                
-
-                
                // modelXRotation += 0.6f*i; // Add an offset so cubes have different phases
                // modelYRotation += 0.6f*i;
                 float4x4 modelMat = rotateXMat(modelXRotation) * rotateYMat(modelYRotation) * translationMat(cubePositions[i]);
@@ -867,7 +923,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
                 float4x4 inverseModelViewMat = inverseViewMat * inverseModelMat;
                 cubeNormalMats[i] = float4x4ToFloat3x3(transpose(inverseModelViewMat));
             }
+
         }
+
+        
 
         // Move the point lights
         const int NUM_LIGHTS = 1;
@@ -917,6 +976,14 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
                 otherNormalMats[i] = float4x4ToFloat3x3(transpose(inverseModelViewMat));
             }
         }
+        // Data for cubes
+        struct CubeData {
+            XMMATRIX modelMatrix;
+            XMMATRIX inverseModelMatrix;
+            XMMATRIX normalMatrix;
+        };
+
+        CubeData cubes[NUM_CUBES];
 
         FLOAT backgroundColor[4] = { 0.1f, 0.2f, 0.6f, 1.0f };
         d3d11DeviceContext->ClearRenderTargetView(d3d11FrameBufferView, backgroundColor);
@@ -1017,6 +1084,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
 
         bool useSkybox = false;
 
+        Logger logger; // Create an instance of the logger
+
+       
+
         ImGui::ShowStyleSelector("Style Selector");
         ImGui::Begin("Chrono Engine Scene");
         ImGui::Text("Camera Position:");
@@ -1084,27 +1155,44 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         ImGui::SliderFloat("Alpha?", &backgroundColor[3], 0.f, 1.f);
 #pragma endregion
 
+        int selectedCube = -1; // Variable to store the selected cube index
 
+        // ImGui window for the hierarchy
+        ImGui::Begin("Hierarchy");
 
-        ImGui::Begin("Scene Hierachy");
-        const char* items[] = { "Cube 0", "Cube 1", "Cube 2", "Cube 3", "Main Light" };
-        static int current_item = 0;
-
-
-        if (ImGui::BeginListBox("", ImGui::GetWindowSize()))
-        {
-            for (int n = 0; n < IM_ARRAYSIZE(items); n++)
-            {
-                const bool is_selected = (current_item == n);
-                if (ImGui::Selectable(items[n], is_selected))
-                    current_item = n;
-
-                // Set the initial focus when opening the combo (scrolling + keyboard navigation focus)
-                if (is_selected)
-                    ImGui::SetItemDefaultFocus();
+        for (int i = 0; i < NUM_CUBES; ++i) {
+            // Selectable cube in the hierarchy
+            ImGui::PushID(i);
+            if (ImGui::Selectable("Cube", selectedCube == i)) {
+                selectedCube = i;
             }
-            ImGui::EndListBox();
+            ImGui::PopID();
         }
+
+       
+
+        ImGui::End();
+
+        // Example: Log messages
+        logger.Log(LogLevel::Info, "This is an information message.");
+        logger.Log(LogLevel::Warning, "This is a warning message.");
+        logger.Log(LogLevel::Error, "This is an error message.");
+
+        // ImGui window for cube properties
+        ImGui::Begin("Properties");
+
+        if (selectedCube >= 0) {
+            // Display the name and stats of the selected cube
+            ImGui::Text("Selected Cube: %d", selectedCube);
+           
+            // Add more stats or properties as needed
+        }
+        else {
+            ImGui::Text("No cube selected.");
+        }
+
+        ImGui::End();
+
 
         /*if (ImGui::Button("Create new Object"))
         {
@@ -1114,7 +1202,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
             }
         }*/
 
-      ImGui::ShowDemoWindow(); // if you want demo window.
+     // ImGui::ShowDemoWindow(); // if you want demo window.
 
         ImGui::BeginMainMenuBar();
         {
@@ -1177,9 +1265,44 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
             
         ImGui::End();
 
-        ImGui::Begin("Performance");
+        ImGui::Begin("Performance / Debug");
         {
             ImGui::Text("%.3f m/s | %.1f FPS", 1000.0f / io.Framerate, io.Framerate);
+            // Get and display the operating system version
+            // note: NTDDI_WIN11 does not exist as of oct 2023 so we just say it is either 10 or 11
+            if (IsWindowsVersionOrGreater(HIBYTE(NTDDI_WIN10), LOBYTE(NTDDI_WIN10), 0)) {
+                ImGui::Text("Operating System: Windows 10/11");
+            }
+            else if (IsWindowsVersionOrGreater(6, 2, 0)) {
+                ImGui::Text("Operating System: Windows 8/8.1");
+            }
+            else if (IsWindowsVersionOrGreater(6, 1, 0)) {
+                ImGui::Text("Operating System: Windows 7");
+            }
+            else if (IsWindowsVersionOrGreater(6, 0, 0)) {
+                ImGui::Text("Operating System: Windows Vista");
+            }
+            else {
+                ImGui::Text("Operating System: Unknown");
+            }
+
+            // Get and display the computer name
+            char computerName[MAX_COMPUTERNAME_LENGTH + 1];
+            DWORD size = MAX_COMPUTERNAME_LENGTH + 1;
+            GetComputerNameA(computerName, &size);
+            ImGui::Text("Computer Name: %s", computerName);
+
+            // Get and display the current user name
+            char username[MAX_PATH];
+            DWORD usernameSize = MAX_PATH;
+            GetUserNameA(username, &usernameSize);
+            ImGui::Text("Current User: %s", username);
+
+            // Get and display system memory (RAM) information
+            MEMORYSTATUSEX memoryStatus;
+            memoryStatus.dwLength = sizeof(MEMORYSTATUSEX);
+            GlobalMemoryStatusEx(&memoryStatus);
+            ImGui::Text("System Memory (RAM): %I64u MB", memoryStatus.ullTotalPhys / (1024 * 1024));
         }
         if (showProjectSettingsWindow) {
             RenderProjectSettingsWindow();
@@ -1229,20 +1352,17 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         }
         ImGui::End();
 
-        ImGui::Begin("Console");
 
-        ImGui::TextColored(ImVec4(1, 0, 0, 1), "Some Random Error!");
-        ImGui::TextColored(ImVec4(1, 1, 0, 1), "Some Random Warning.");
-        ImGui::TextColored(ImVec4(1, 1, 1, 1), "Some Random Log");
 
-        ImGui::End();
 
         ImGui::Render();
        // d3d11DeviceContext->OMSetRenderTargets(1, &d3d11FrameBufferView, NULL);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
         
 
+
         d3d11SwapChain->Present(0, 0);
+
     }
 
 
@@ -1250,6 +1370,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
+
+
 
     return 0;
 
