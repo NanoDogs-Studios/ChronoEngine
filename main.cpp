@@ -786,7 +786,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // IF using Docking Branch
     io.DisplayFramebufferScale = ImVec2(1920, 1080); // Set appropriate scale factors
-    ImFont* font1 = io.Fonts->AddFontFromFileTTF("Roboto-Regular.ttf", 15);
     ImGui::StyleColorsDark();
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(d3d11Device, d3d11DeviceContext);
@@ -1084,7 +1083,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
 
         bool useSkybox = false;
 
-        Logger logger; // Create an instance of the logger
 
        
 
@@ -1168,9 +1166,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
             }
             ImGui::PopID();
         }
-
-       
-
         ImGui::End();
 
         // Example: Log messages
