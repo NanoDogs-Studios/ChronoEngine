@@ -20,6 +20,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Console.cpp" />
     <ClCompile Include="Hierachy.cpp" />
     <ClCompile Include="imgui\imgui.cpp" />
     <ClCompile Include="imgui\imgui_demo.cpp" />
@@ -33,6 +34,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="3DMaths.h" />
+    <ClInclude Include="Console.h" />
     <ClInclude Include="Hierachy.h" />
     <ClInclude Include="imgui\imconfig.h" />
     <ClInclude Include="imgui\imgui.h" />
@@ -53,10 +55,13 @@
     <FxCompile Include="Lights.hlsl" />
   </ItemGroup>
   <ItemGroup>
+    <Image Include="blue.png" />
     <Image Include="crate.png">
       <DeploymentContent>true</DeploymentContent>
     </Image>
+    <Image Include="green.png" />
     <Image Include="icons\Chrono.ico" />
+    <Image Include="red.png" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -192,7 +197,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>imgui;nfd;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>imgui;include;nfd;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>

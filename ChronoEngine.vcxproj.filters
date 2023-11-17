@@ -51,6 +51,9 @@
     <ClCompile Include="Hierachy.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Console.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ObjLoading.h">
@@ -92,6 +95,9 @@
     <ClInclude Include="resource.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Console.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="BlinnPhong.hlsl">
@@ -106,6 +112,15 @@
       <Filter>Resource Files</Filter>
     </Image>
     <Image Include="icons\Chrono.ico">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="red.png">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="blue.png">
+      <Filter>Resource Files</Filter>
+    </Image>
+    <Image Include="green.png">
       <Filter>Resource Files</Filter>
     </Image>
   </ItemGroup>

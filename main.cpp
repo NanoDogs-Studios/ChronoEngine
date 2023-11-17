@@ -1,3 +1,4 @@
+#pragma region Includes
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #define UNICODE
@@ -15,6 +16,10 @@
 #pragma comment(lib, "d3d11.lib")
 #include <d3dcompiler.h>
 #pragma comment(lib, "d3dcompiler.lib")
+#pragma comment (lib, "dinput8.lib")
+#pragma comment (lib, "dxguid.lib")
+#include <dinput.h>
+#include "Console.h"
 
 
 #include <DirectXMath.h>
@@ -26,6 +31,8 @@
 #include <stdint.h>
 #include <iostream>
 #include <VersionHelpers.h>  // Include for IsWindowsVersionOrGreater function
+#include <nlohmann/json.hpp>
+using json = nlohmann::json;
 using namespace std;
 using namespace std::this_thread; // sleep_for, sleep_until
 using namespace std::chrono; // nanoseconds, system_clock, seconds
@@ -39,72 +46,49 @@ using namespace DirectX;
 #include <windowsx.h>
 #include "Hierachy.h"
 #include "resource.h"
+#pragma endregion
 
-// Define log levels
-enum class LogLevel { Error, Warning, Info };
+#pragma region Variables
 
-// Structure to hold log entries
-struct LogEntry {
-    LogLevel level;
-    std::string message;
-};
-
-class Logger {
-public:
-    // Initialize the logger
-    Logger() {
-        logBufferSize = 100; // Adjust as needed
-        logBuffer.reserve(logBufferSize);
-    }
-
-    // Log a message with a specific log level
-    void Log(LogLevel level, const std::string& message) {
-        LogEntry entry = { level, message };
-        logBuffer.push_back(entry);
-
-        // Keep the log buffer size within the limit
-        while (logBuffer.size() > logBufferSize) {
-            logBuffer.erase(logBuffer.begin());
-        }
-    }
-
-    // Render the console window using ImGui
-    void RenderConsoleWindow() {
-        ImGui::Begin("Console");
-
-        // Add controls to filter logs, clear logs, etc.
-
-        for (const LogEntry& entry : logBuffer) {
-            ImVec4 textColor;
-            if (entry.level == LogLevel::Error) {
-                textColor = ImVec4(1.0f, 0.0f, 0.0f, 1.0f); // Red for errors
-            }
-            else if (entry.level == LogLevel::Warning) {
-                textColor = ImVec4(1.0f, 1.0f, 0.0f, 1.0f); // Yellow for warnings
-            }
-            else {
-                textColor = ImVec4(1.0f, 1.0f, 1.0f, 1.0f); // White for info
-            }
-
-            ImGui::TextColored(textColor, "%s", entry.message.c_str());
-        }
-
-        ImGui::End();
-    }
-
-private:
-    std::vector<LogEntry> logBuffer;
-    size_t logBufferSize;
-};
+ID3D11RasterizerState* rStateWireframe;
+ID3D11RasterizerState* rStateSolid;
 
 static bool global_windowDidResize = false;
 
 // Function to create a popup window for project settings
 bool showProjectSettingsWindow = false;
 
+// Function to create a popup window for project settings
+bool showEditorSettingsWindow = false;
+
 string items[] = { "" };
 static int current_item = 0;
 
+bool RobotoFont = false;
+bool SystemFont = true;
+
+float fontSize = 15;
+
+// Create an instance of the ConsoleWindow
+Console console;
+
+// Variables used for Project Assets
+WCHAR selectedFilePath[MAX_PATH] = L"";
+
+
+IDirectInputDevice8* DIKeyboard; // get directx keyboard
+IDirectInputDevice8* DIMouse; // get directx mouse
+
+DIMOUSESTATE mouseLastState;
+LPDIRECTINPUT8 DirectInput; // get directx input
+
+float rotx = 0;
+float rotz = 0;
+float scaleX = 1.0f;
+float scaleY = 1.0f;
+
+XMMATRIX Rotationx;
+XMMATRIX Rotationz;
 
 // Input
 enum GameAction {
@@ -121,20 +105,73 @@ enum GameAction {
     GameActionCount
 };
 static bool global_keyIsDown[GameActionCount] = {};
+#pragma endregion
 
+// Function to get the installation directory
+std::wstring GetInstallationDirectory() {
+    wchar_t buffer[MAX_PATH];
+    GetModuleFileName(NULL, buffer, MAX_PATH);
+    std::wstring::size_type pos = std::wstring(buffer).find_last_of(L"\\/");
+    return std::wstring(buffer).substr(0, pos);
+}
+
+// Function to get the path for the project assets folder
+std::wstring GetProjectAssetsFolder() {
+    return GetInstallationDirectory() + L"\\ProjectAssets";
+}
+
+// Function to copy a file to the project assets folder
+void CopyFileToProjectAssets(const std::wstring& sourcePath) {
+    std::wstring destinationPath = GetProjectAssetsFolder() + L"\\" + sourcePath.substr(sourcePath.find_last_of(L"\\") + 1);
+
+    if (CopyFile(sourcePath.c_str(), destinationPath.c_str(), FALSE)) {
+        // Successfully copied the file
+    }
+    else {
+        if (MessageBoxA(0, "Uhoh! it seems either a file already exists or other similar occurrences. ERR_COPYTOPROJ", "Unable to Add to project.", MB_OK) == IDOK)
+        {
+            return;
+        }
+    }
+}
+
+// Function to delete a file from the project assets folder
+void DeleteFileFromProjectAssets(const std::wstring& fileName) {
+    std::wstring filePath = GetProjectAssetsFolder() + L"\\" + fileName;
+
+    if (DeleteFile(filePath.c_str())) {
+        // Successfully deleted the file
+    }
+    else {
+        // Handle error
+    }
+}
+
+#pragma region Project Settings Window
 // Project Settings
 void RenderProjectSettingsWindow()
 {
-    ImGui::SetNextWindowSize(ImVec2(400, 300), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(400, 300), ImGuiCond_FirstUseEver); // Set the Project Settings Size
     ImGui::Begin("Project Settings", &showProjectSettingsWindow);
 
+#pragma region Project Details
+    ImGui::Separator();
+    ImGui::Text("Project Details");
+    static char company[64] = "Something Studios";
+    ImGui::InputText("Company Name", company, IM_ARRAYSIZE(company));
+    static char projname[64] = "My Chrono Engine Project";
+    ImGui::InputText("Project Name", projname, IM_ARRAYSIZE(projname));
+#pragma endregion
+
+
+#pragma region Graphics
+    ImGui::Separator();
+    ImGui::Text("Graphics");
     // Create a combo box to select the rendering engine
     static int selectedEngine = 0;
     const char* engines[] = { "DirectX 11", "DirectX 12", "OpenGL ES 3" };
-
     // Add your project settings controls here
     ImGui::Combo("Rendering Engine", &selectedEngine, engines, IM_ARRAYSIZE(engines));
-    
     if (selectedEngine == 0) // DirectX 11
     {
 
@@ -150,8 +187,6 @@ void RenderProjectSettingsWindow()
         {
             return;
         }
-       
-        
     }
     if (selectedEngine == 2) // OpenGL ES 3
     {
@@ -164,9 +199,35 @@ void RenderProjectSettingsWindow()
             return;
         }
     }
+#pragma endregion
+
+   
 
     ImGui::End();
 }
+#pragma endregion
+
+#pragma region Editor Settings
+// Editor Settings
+void RenderEditorSettingsWindow()
+{
+    ImGui::SetNextWindowSize(ImVec2(400, 300), ImGuiCond_FirstUseEver);
+    ImGui::Begin("Editor Settings", &showEditorSettingsWindow);
+
+    ImGui::Text("Font Settings");
+    ImGui::Separator();
+   // ImGui::Text("Roboto Active?: %s", RobotoFont);
+   // ImGui::Text("System Active?: %s", SystemFont);
+
+    ImGui::Checkbox("Roboto", &RobotoFont);
+    ImGui::Checkbox("System", &SystemFont);
+
+    ImGui::DragFloat("Font Size", &fontSize);
+
+    ImGui::End();
+}
+#pragma endregion
+
 
 
 // Creates the render target (your gpu) object
@@ -217,7 +278,28 @@ bool win32CreateD3D11RenderTargets(ID3D11Device1* d3d11Device, IDXGISwapChain1* 
 
     return true;
 }
+DWORD WINAPI ConsoleThread(LPVOID)
+{
 
+    while (true)
+    {
+        // Check for new console output
+        char buffer[256];
+        DWORD bytesRead;
+        while (ReadFile(GetStdHandle(STD_OUTPUT_HANDLE), buffer, sizeof(buffer), &bytesRead, NULL))
+        {
+            if (bytesRead == 0)
+                break;
+
+            buffer[bytesRead] = 0;
+            console.AddLog(buffer); // Add console output to the ImGui console
+        }
+
+        Sleep(100); // Poll for new output periodically
+    }
+
+    return 0;
+}
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -285,7 +367,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 
 int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*/, _In_ PSTR /*lpCmdLine*/, _In_ int /*nShowCmd*/)
 {
-    
+
 
     // Open a window
     HWND hwnd;
@@ -301,7 +383,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         winClass.lpszClassName = L"ChronoEngine";
         winClass.lpszMenuName = MAKEINTRESOURCE(IDM_MYMENURESOURCE);
 
-        if(!RegisterClassExW(&winClass)) {
+        if (!RegisterClassExW(&winClass)) {
             MessageBoxA(0, "RegisterClassEx failed", "Fatal Error", MB_OK);
             return GetLastError();
         }
@@ -312,20 +394,19 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         LONG initialHeight = initialRect.bottom - initialRect.top;
 
         hwnd = CreateWindowExW(WS_EX_OVERLAPPEDWINDOW,
-                                winClass.lpszClassName,
-                                L"Chrono - untitled [DX11]",
-                                WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-                                CW_USEDEFAULT, CW_USEDEFAULT,
-                                initialWidth, 
-                                initialHeight,
-                                0, 0, hInstance, 0);
+            winClass.lpszClassName,
+            L"Chrono - untitled [DX11]",
+            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+            CW_USEDEFAULT, CW_USEDEFAULT,
+            initialWidth,
+            initialHeight,
+            0, 0, hInstance, 0);
 
-        if(!hwnd) {
+        if (!hwnd) {
             MessageBoxA(0, "CreateWindowEx failed", "Fatal Error", MB_OK);
             return GetLastError();
         }
     }
-
     // Create D3D11 Device and Context
     ID3D11Device1* d3d11Device;
     ID3D11DeviceContext1* d3d11DeviceContext;
@@ -334,20 +415,20 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         ID3D11DeviceContext* baseDeviceContext;
         D3D_FEATURE_LEVEL featureLevels[] = { D3D_FEATURE_LEVEL_11_0 };
         UINT creationFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
-        #if defined(DEBUG_BUILD)
+#if defined(DEBUG_BUILD)
         creationFlags |= D3D11_CREATE_DEVICE_DEBUG;
-        #endif
+#endif
 
-        HRESULT hResult = D3D11CreateDevice(0, D3D_DRIVER_TYPE_HARDWARE, 
-                                            0, creationFlags, 
-                                            featureLevels, ARRAYSIZE(featureLevels), 
-                                            D3D11_SDK_VERSION, &baseDevice, 
-                                            0, &baseDeviceContext);
-        if(FAILED(hResult)){
+        HRESULT hResult = D3D11CreateDevice(0, D3D_DRIVER_TYPE_HARDWARE,
+            0, creationFlags,
+            featureLevels, ARRAYSIZE(featureLevels),
+            D3D11_SDK_VERSION, &baseDevice,
+            0, &baseDeviceContext);
+        if (FAILED(hResult)) {
             MessageBoxA(0, "D3D11CreateDevice() failed", "Fatal Error", MB_OK);
             return GetLastError();
         }
-        
+
         // Get 1.1 interface of D3D11 Device and Context
         hResult = baseDevice->QueryInterface(__uuidof(ID3D11Device1), (void**)&d3d11Device);
         assert(SUCCEEDED(hResult));
@@ -357,14 +438,13 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         assert(SUCCEEDED(hResult));
         baseDeviceContext->Release();
     }
-
 #ifdef DEBUG_BUILD
     // Set up debug layer to break on D3D11 errors
-    ID3D11Debug *d3dDebug = nullptr;
+    ID3D11Debug* d3dDebug = nullptr;
     d3d11Device->QueryInterface(__uuidof(ID3D11Debug), (void**)&d3dDebug);
     if (d3dDebug)
     {
-        ID3D11InfoQueue *d3dInfoQueue = nullptr;
+        ID3D11InfoQueue* d3dInfoQueue = nullptr;
         if (SUCCEEDED(d3dDebug->QueryInterface(__uuidof(ID3D11InfoQueue), (void**)&d3dInfoQueue)))
         {
             d3dInfoQueue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_CORRUPTION, true);
@@ -374,7 +454,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         d3dDebug->Release();
     }
 #endif
-
     // Create Swap Chain
     IDXGISwapChain1* d3d11SwapChain;
     {
@@ -400,7 +479,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
             assert(SUCCEEDED(hResult));
             dxgiAdapter->Release();
         }
-        
+
         DXGI_SWAP_CHAIN_DESC1 d3d11SwapChainDesc = {};
         d3d11SwapChainDesc.Width = 0; // use window width
         d3d11SwapChainDesc.Height = 0; // use window height
@@ -413,12 +492,30 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         d3d11SwapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
         d3d11SwapChainDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
         d3d11SwapChainDesc.Flags = 0;
+      
 
         HRESULT hResult = dxgiFactory->CreateSwapChainForHwnd(d3d11Device, hwnd, &d3d11SwapChainDesc, 0, 0, &d3d11SwapChain);
         assert(SUCCEEDED(hResult));
 
         dxgiFactory->Release();
     }
+    // Create wireframe rasterizer state
+    D3D11_RASTERIZER_DESC rasterDesc;
+    ZeroMemory(&rasterDesc, sizeof(rasterDesc));
+    rasterDesc.FillMode = D3D11_FILL_WIREFRAME;
+    rasterDesc.CullMode = D3D11_CULL_NONE;
+    rasterDesc.FrontCounterClockwise = FALSE;
+    rasterDesc.SlopeScaledDepthBias = 0.0f;
+    rasterDesc.DepthBiasClamp = 0.0f;
+    rasterDesc.DepthClipEnable = TRUE;
+    rasterDesc.ScissorEnable = FALSE;
+    rasterDesc.MultisampleEnable = TRUE;
+    rasterDesc.AntialiasedLineEnable = TRUE;
+    d3d11Device->CreateRasterizerState(&rasterDesc, &rStateWireframe);
+
+    // Create solid rasterizer state
+    rasterDesc.FillMode = D3D11_FILL_SOLID;
+    d3d11Device->CreateRasterizerState(&rasterDesc, &rStateSolid);
 
     // Create Render Target and Depth Buffer
     ID3D11RenderTargetView* d3d11FrameBufferView;
@@ -427,9 +524,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
 
     UINT shaderCompileFlags = 0;
     // Compiling with this flag allows debugging shaders with Visual Studio
-    #if defined(DEBUG_BUILD)
+#if defined(DEBUG_BUILD)
     shaderCompileFlags |= D3DCOMPILE_DEBUG;
-    #endif
+#endif
 
     // Create Vertex Shader for rendering our lights
     ID3DBlob* lightVsCode;
@@ -437,12 +534,12 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
     {
         ID3DBlob* compileErrors;
         HRESULT hResult = D3DCompileFromFile(L"Lights.hlsl", nullptr, nullptr, "vs_main", "vs_5_0", shaderCompileFlags, 0, &lightVsCode, &compileErrors);
-        if(FAILED(hResult))
+        if (FAILED(hResult))
         {
             const char* errorString = NULL;
-            if(hResult == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND))
+            if (hResult == HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND))
                 errorString = "Could not compile shader; file not found";
-            else if(compileErrors){
+            else if (compileErrors) {
                 errorString = (const char*)compileErrors->GetBufferPointer();
             }
             MessageBoxA(0, errorString, "Shader Compiler Error", MB_ICONERROR | MB_OK);
@@ -452,7 +549,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         hResult = d3d11Device->CreateVertexShader(lightVsCode->GetBufferPointer(), lightVsCode->GetBufferSize(), nullptr, &lightVertexShader);
         assert(SUCCEEDED(hResult));
     }
-
     // Create Pixel Shader for rendering our lights
     ID3D11PixelShader* lightPixelShader;
     {
@@ -475,7 +571,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         assert(SUCCEEDED(hResult));
         psBlob->Release();
     }
-
     // Create Input Layout for our light vertex shader
     ID3D11InputLayout* lightInputLayout;
     {
@@ -488,7 +583,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         assert(SUCCEEDED(hResult));
         lightVsCode->Release();
     }
-
     // Create Vertex Shader for rendering our lit objects
     ID3DBlob* blinnPhongVsCode;
     ID3D11VertexShader* blinnPhongVertexShader;
@@ -510,7 +604,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         hResult = d3d11Device->CreateVertexShader(blinnPhongVsCode->GetBufferPointer(), blinnPhongVsCode->GetBufferSize(), nullptr, &blinnPhongVertexShader);
         assert(SUCCEEDED(hResult));
     }
-
     // Create Pixel Shader for rendering our lit objects
     ID3D11PixelShader* blinnPhongPixelShader;
     {
@@ -533,7 +626,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         assert(SUCCEEDED(hResult));
         psBlob->Release();
     }
-
     // Create Input Layout for our Blinn-Phong vertex shader
     ID3D11InputLayout* blinnPhongInputLayout;
     {
@@ -560,7 +652,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
     UINT axisNumIndices;
     UINT axisStride;
     UINT axisOffset;
-
     {
         LoadedObj obj = loadObj("cube.obj");
         LoadedObj axis = loadObj("axis.obj");
@@ -668,7 +759,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         float4x4 modelViewProj;
         float4 color;
     };
-
     ID3D11Buffer* lightVSConstantBuffer;
     {
         D3D11_BUFFER_DESC constantBufferDesc = {};
@@ -681,7 +771,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         HRESULT hResult = d3d11Device->CreateBuffer(&constantBufferDesc, nullptr, &lightVSConstantBuffer);
         assert(SUCCEEDED(hResult));
     }
-
     // Create Constant Buffer for our Blinn-Phong vertex shader
     struct BlinnPhongVSConstants
     {
@@ -689,7 +778,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         float4x4 modelView;
         float3x3 normalMatrix;
     };
-
     ID3D11Buffer* blinnPhongVSConstantBuffer;
     {
         D3D11_BUFFER_DESC constantBufferDesc = {};
@@ -702,24 +790,21 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         HRESULT hResult = d3d11Device->CreateBuffer(&constantBufferDesc, nullptr, &blinnPhongVSConstantBuffer);
         assert(SUCCEEDED(hResult));
     }
-
-    struct DirectionalLight
+    struct DirectionalLight // Directional Light
     {
         float4 dirEye; //NOTE: Direction towards the light
         float4 color;
     };
-
-    struct PointLight
+    struct PointLight // Point Light
     {
         float4 posEye;
         float4 color;
     };
-
     // Create Constant Buffer for our Blinn-Phong pixel shader
     struct BlinnPhongPSConstants
     {
         DirectionalLight dirLight;
-        PointLight pointLights[2];
+        PointLight pointLights[50];
     };
 
     ID3D11Buffer* blinnPhongPSConstantBuffer;
@@ -756,10 +841,10 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
     }
 
     // Camera
-    float3 cameraPos = {0, 0, 2};
+    static float3 cameraPos = {0, 0, 2};
     float3 cameraFwd = {0, 0, -1};
-    float cameraPitch = 0.f;
-    float cameraYaw = 0.f;
+    static float cameraPitch = 0.f;
+    static float cameraYaw = 0.f;
 
     static float vec4a[4];
 
@@ -779,22 +864,100 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
     }
     double currentTimeInSeconds = 0.0;
 
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
-    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    IMGUI_CHECKVERSION(); // check the imgui version
+    ImGui::CreateContext(); // create the context
+    ImGuiIO& io = ImGui::GetIO(); (void)io; // get the Input/Output
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;         // IF using Docking Branch
     io.DisplayFramebufferScale = ImVec2(1920, 1080); // Set appropriate scale factors
-    ImGui::StyleColorsDark();
+
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(d3d11Device, d3d11DeviceContext);
 
+#pragma region Chrono Style
+    ImGuiStyle& chronoDark = ImGui::GetStyle();
+    chronoDark.WindowRounding = 6.45f;
+    chronoDark.FrameRounding = 3.9f;
+    chronoDark.ScrollbarRounding = 1;
+
+    // Modify the colors for the dark theme
+    chronoDark.Colors[ImGuiCol_Text] = ImVec4(0.80f, 0.80f, 0.80f, 1.00f);
+    chronoDark.Colors[ImGuiCol_TextDisabled] = ImVec4(0.60f, 0.60f, 0.60f, 1.00f);
+    chronoDark.Colors[ImGuiCol_WindowBg] = ImVec4(0.08f, 0.08f, 0.08f, 1.00f);
+    chronoDark.Colors[ImGuiCol_PopupBg] = ImVec4(0.10f, 0.10f, 0.10f, 0.90f);
+    chronoDark.Colors[ImGuiCol_Border] = ImVec4(0.70f, 0.70f, 0.70f, 0.00f);
+    chronoDark.Colors[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
+    chronoDark.Colors[ImGuiCol_FrameBg] = ImVec4(0.12f, 0.12f, 0.12f, 1.00f);
+    chronoDark.Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.24f, 0.24f, 0.24f, 0.40f);
+    chronoDark.Colors[ImGuiCol_FrameBgActive] = ImVec4(0.20f, 0.20f, 0.20f, 0.45f);
+    chronoDark.Colors[ImGuiCol_TitleBg] = ImVec4(0.04f, 0.04f, 0.04f, 1.00f);
+    chronoDark.Colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.20f, 0.20f, 0.20f, 0.20f);
+    chronoDark.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.06f, 0.06f, 0.06f, 1.00f);
+    chronoDark.Colors[ImGuiCol_MenuBarBg] = ImVec4(0.12f, 0.12f, 0.12f, 0.80f);
+    chronoDark.Colors[ImGuiCol_ScrollbarBg] = ImVec4(0.20f, 0.25f, 0.30f, 0.60f);
+    chronoDark.Colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.55f, 0.53f, 0.55f, 0.51f);
+    chronoDark.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.56f, 0.56f, 0.56f, 1.00f);
+    chronoDark.Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.56f, 0.56f, 0.56f, 0.91f);
+    chronoDark.Colors[ImGuiCol_CheckMark] = ImVec4(0.90f, 0.90f, 0.90f, 1.00f);
+    chronoDark.Colors[ImGuiCol_SliderGrab] = ImVec4(0.70f, 0.70f, 0.70f, 0.62f);
+    chronoDark.Colors[ImGuiCol_SliderGrabActive] = ImVec4(0.30f, 0.30f, 0.30f, 0.84f);
+    chronoDark.Colors[ImGuiCol_Button] = ImVec4(0.40f, 0.40f, 0.40f, 1.00f);
+    chronoDark.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.45f, 0.45f, 0.45f, 1.00f);
+    chronoDark.Colors[ImGuiCol_ButtonActive] = ImVec4(0.30f, 0.30f, 0.30f, 1.00f);
+    chronoDark.Colors[ImGuiCol_Header] = ImVec4(0.30f, 0.69f, 1.00f, 0.53f);
+    chronoDark.Colors[ImGuiCol_HeaderHovered] = ImVec4(0.44f, 0.61f, 0.86f, 1.00f);
+    chronoDark.Colors[ImGuiCol_HeaderActive] = ImVec4(0.38f, 0.62f, 0.83f, 1.00f);
+    chronoDark.Colors[ImGuiCol_ResizeGrip] = ImVec4(0.60f, 0.60f, 0.60f, 0.85f);
+    chronoDark.Colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.70f, 0.70f, 0.70f, 0.60f);
+    chronoDark.Colors[ImGuiCol_ResizeGripActive] = ImVec4(0.70f, 0.70f, 0.70f, 0.90f);
+    chronoDark.Colors[ImGuiCol_PlotLines] = ImVec4(0.90f, 0.90f, 0.90f, 1.00f);
+    chronoDark.Colors[ImGuiCol_PlotLinesHovered] = ImVec4(0.80f, 0.70f, 0.00f, 1.00f);
+    chronoDark.Colors[ImGuiCol_PlotHistogram] = ImVec4(0.80f, 0.70f, 0.00f, 1.00f);
+    chronoDark.Colors[ImGuiCol_PlotHistogramHovered] = ImVec4(1.00f, 0.60f, 0.00f, 1.00f);
+    chronoDark.Colors[ImGuiCol_TextSelectedBg] = ImVec4(0.00f, 0.00f, 1.00f, 0.35f);
+#pragma endregion
+
+
+    // Start a separate thread to capture console output
+    CreateThread(NULL, 0, ConsoleThread, NULL, 0, NULL);
+
+    cout << "Chrono Console Started!";
+
+    LONG lReg;
+    HKEY hKey;
+    lReg = RegCreateKeyEx(
+        HKEY_LOCAL_MACHINE,
+        L"Software\\Chrono Engine",
+        0,
+        NULL,
+        REG_OPTION_NON_VOLATILE,
+        KEY_ALL_ACCESS | KEY_WOW64_64KEY,
+        NULL,
+        &hKey,
+        NULL);
+    if (lReg != ERROR_SUCCESS)
+    {
+        cout << "Registry creation failed & Error No - " << GetLastError() << endl;
+    }
+    cout << "Registry Creation Success!" << endl;
+   
+    RegCloseKey(hKey);
 
     // Main Loop
     bool isRunning = true;
     while(isRunning)
     {
+        if (RobotoFont)
+        {
+            SystemFont = false;
+            io.Fonts->AddFontFromFileTTF("Roboto-Regular.ttf", 15); // we update the font every frame.
+        }
+        if (SystemFont)
+        {
+            RobotoFont = false;
+            io.Fonts->AddFontFromFileTTF("System.ttf", 15); // we update the font every frame.
+        }
         float dt;
         {
             double previousTimeInSeconds = currentTimeInSeconds;
@@ -899,7 +1062,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         cameraFwd = {-viewMat.m[2][0], -viewMat.m[2][1], -viewMat.m[2][2]};
 
         // Calculate matrices for cubes
-        const int NUM_CUBES = 4;
+        static const int  NUM_CUBES = 4;
         float4x4 cubeModelViewMats[NUM_CUBES];
         float3x3 cubeNormalMats[NUM_CUBES];
         {
@@ -914,6 +1077,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
             float modelYRotation = 0.f; // *(float)(M_PI* currentTimeInSeconds);
             for(int i=0; i<NUM_CUBES; ++i)
             {
+
                // modelXRotation += 0.6f*i; // Add an offset so cubes have different phases
                // modelYRotation += 0.6f*i;
                 float4x4 modelMat = rotateXMat(modelXRotation) * rotateYMat(modelYRotation) * translationMat(cubePositions[i]);
@@ -921,15 +1085,14 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
                 cubeModelViewMats[i] = modelMat * viewMat;
                 float4x4 inverseModelViewMat = inverseViewMat * inverseModelMat;
                 cubeNormalMats[i] = float4x4ToFloat3x3(transpose(inverseModelViewMat));
+                cout << "Made a cube!";
             }
 
         }
 
-        
-
         // Move the point lights
         const int NUM_LIGHTS = 1;
-        float brightness = 1.5f;
+        static float brightness = 1.5f;
         float4 lightColor[NUM_LIGHTS] = {
             {brightness, brightness, brightness, brightness}
            // {0.9f, 0.1f, 0.6f, 1.f}
@@ -949,6 +1112,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
                                         
                 lightModelViewMats[i] = scaleMat(0.2f) * translationMat(initialPointLightPositions[i].xyz) * rotateYMat(lightRotation) * viewMat;
                 pointLightPosEye[i] = lightModelViewMats[i].cols[3];
+                cout << "Made a light with brightness: " << brightness;
             }
         }
 
@@ -973,6 +1137,7 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
                 otherModelViewMats[i] = modelMat * viewMat;
                 float4x4 inverseModelViewMat = inverseViewMat * inverseModelMat;
                 otherNormalMats[i] = float4x4ToFloat3x3(transpose(inverseModelViewMat));
+                cout << "Made a object with type (other).";
             }
         }
         // Data for cubes
@@ -984,7 +1149,8 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
 
         CubeData cubes[NUM_CUBES];
 
-        FLOAT backgroundColor[4] = { 0.1f, 0.2f, 0.6f, 1.0f };
+        static FLOAT defaultbackgroundColor[4] = { 0.1f, 0.2f, 0.6f, 1.0f };
+        static FLOAT backgroundColor[4] = { 0.1f, 0.2f, 0.6f, 1.0f };
         d3d11DeviceContext->ClearRenderTargetView(d3d11FrameBufferView, backgroundColor);
         
         d3d11DeviceContext->ClearDepthStencilView(depthBufferView, D3D11_CLEAR_DEPTH, 1.0f, 0);
@@ -1027,7 +1193,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
-
         // Draw cubes
         {
             d3d11DeviceContext->IASetInputLayout(blinnPhongInputLayout);
@@ -1054,7 +1219,6 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
                 d3d11DeviceContext->Unmap(blinnPhongPSConstantBuffer, 0);
             }
 
-            
             for(int i=0; i<NUM_CUBES; ++i)
             {
                 // Update vertex shader constant buffer
@@ -1069,36 +1233,35 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
                 d3d11DeviceContext->DrawIndexed(cubeNumIndices, 0, 0);
             }
         }
-        
 
         float cameraX = cameraPos.x;
         float cameraY = cameraPos.y;
         float cameraZ = cameraPos.z;
 
-
         float camPitch = cameraPitch;
         float camYaw = cameraYaw;
         
-        float bn = brightness;
-
-        bool useSkybox = false;
 
 
-       
+        static bool useSkybox = false;
+
+        cout << "Start windows:";
 
         ImGui::ShowStyleSelector("Style Selector");
+        cout << "style selector window initalized!";
         ImGui::Begin("Chrono Engine Scene");
+        cout << "scene settings window initalized";
         ImGui::Text("Camera Position:");
-        ImGui::Text("X: %.3f", cameraX);
-        ImGui::Text("Y: %.3f", cameraY);
-        ImGui::Text("Z: %.3f", cameraZ);
+        ImGui::InputFloat("X: %.3f", &cameraX, 1.0f, 2.0f);
+        ImGui::InputFloat("Y: %.3f", &cameraY, 1.0f, 2.0f);
+        ImGui::InputFloat("Z: %.3f", &cameraZ, 1.0f, 2.0f);
         ImGui::Text("Camera Rotation:");
-        ImGui::Text("Pitch: %.3f", camPitch);
-        ImGui::Text("Yaw: %.3f", camYaw);
+        ImGui::InputFloat("Pitch: %.3f", &camPitch, 1.0f, 2.0f);
+        ImGui::InputFloat("Yaw: %.3f", &camYaw, 1.0f, 2.0f);
         ImGui::NewLine();
         #pragma region Scene Brightness
         ImGui::Text("Scene Brightness:");
-        ImGui::SliderFloat("", &bn, 0.5f, 49.99f);
+        ImGui::InputFloat("", &brightness, 1.0f, 5.00f);
         #pragma endregion
 
         #pragma region Scene Sky
@@ -1147,16 +1310,16 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
                 }
             }
         }
-        ImGui::SliderFloat("Red", &backgroundColor[0], 0.f, 1.f);
-        ImGui::SliderFloat("Green", &backgroundColor[1], 0.f, 1.f);
-        ImGui::SliderFloat("Blue", &backgroundColor[2], 0.f, 1.f);
-        ImGui::SliderFloat("Alpha?", &backgroundColor[3], 0.f, 1.f);
+        ImGui::InputFloat("Red", &backgroundColor[0], 1.0f, 2.0f);
+        ImGui::InputFloat("Green", &backgroundColor[1], 1.0f, 2.0f);
+        ImGui::InputFloat("Blue", &backgroundColor[2], 1.0f, 2.0f);
 #pragma endregion
 
         int selectedCube = -1; // Variable to store the selected cube index
 
         // ImGui window for the hierarchy
         ImGui::Begin("Hierarchy");
+        cout << "hierachy window initalized!";
 
         for (int i = 0; i < NUM_CUBES; ++i) {
             // Selectable cube in the hierarchy
@@ -1168,13 +1331,9 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
         }
         ImGui::End();
 
-        // Example: Log messages
-        logger.Log(LogLevel::Info, "This is an information message.");
-        logger.Log(LogLevel::Warning, "This is a warning message.");
-        logger.Log(LogLevel::Error, "This is an error message.");
-
         // ImGui window for cube properties
         ImGui::Begin("Properties");
+        cout << "properties window initalized!";
 
         if (selectedCube >= 0) {
             // Display the name and stats of the selected cube
@@ -1188,39 +1347,51 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
 
         ImGui::End();
 
-
-        /*if (ImGui::Button("Create new Object"))
+        if (ImGui::Button("Create new Object"))
         {
-            if (current_item == "Cube")
-            {
-                NUM_CUBES++;
-            }
-        }*/
+           
+        }
 
      // ImGui::ShowDemoWindow(); // if you want demo window.
 
+        // Inside your ImGui rendering code
+        static char saveFileName[128] = "scene.cproj";
+        static char loadFileName[128] = "scene.cproj";
+
         ImGui::BeginMainMenuBar();
+        cout << "Start menu Bar.";
         {
             if (ImGui::BeginMenu("File"))
             {
                 if (ImGui::MenuItem("Project Settings")) {
                     showProjectSettingsWindow = true;
-
-                   
                 }
-
-                ImGui::MenuItem("Save");
+                if (ImGui::MenuItem("Editor Settings")) {
+                    showEditorSettingsWindow = true;
+                }
+                if (ImGui::MenuItem("Save"))
+                {
+                    
+                }
                 ImGui::MenuItem("Save As..");
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Tools"))
             {
-
+                if (ImGui::MenuItem("WireFrame"))
+                {
+                    d3d11DeviceContext->RSSetState(rStateWireframe);
+                }
+                if(ImGui::MenuItem("Solid"))
+                {
+                    d3d11DeviceContext->RSSetState(rStateSolid);
+                }
+             
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Help"))
             {
-                if (ImGui::Button("Documentation"))
+                if (ImGui::MenuItem("Documentation"))
                 {
                     ShellExecute(0, 0, L"https://github.com/NanoDogs-Studios/ChronoEngine/wiki", 0, 0, SW_SHOW);
                 }
@@ -1228,40 +1399,39 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
             }
             if (ImGui::BeginMenu("Misc"))
             {
-                if (ImGui::Button("Quit"))
+                if (ImGui::MenuItem("Quit"))
                 {
                     quick_exit(0);
                 }
-                if (ImGui::Button("Fullscreen"))
+                if (ImGui::MenuItem("Fullscreen"))
                 {
                     d3d11SwapChain->SetFullscreenState(true, NULL);
                     
                     MessageBoxA(hwnd, "You are now in fullscreen, press ESCAPE to quit Chrono.", "Chrono Warning!", MB_OK);
                     
                 }
-                if (ImGui::Button("Windowed"))
+                if (ImGui::MenuItem("Windowed"))
                 {
                     d3d11SwapChain->SetFullscreenState(false, NULL);
                 }
-                if (ImGui::Button("Save Layout"))
+                if (ImGui::MenuItem("Save Layout"))
                 {
                     ImGui::SaveIniSettingsToDisk("imgui.ini");
                 }
-                if (ImGui::Button("Reset Layout"))
+                if (ImGui::MenuItem("Reset Layout"))
                 {
                     ImGui::LoadIniSettingsFromDisk("defaultLayout.ini");
                 }
                 ImGui::EndMenu();
-
             }
-           
             ImGui::EndMainMenuBar();
         }
-            
         ImGui::End();
 
         ImGui::Begin("Performance / Debug");
+        cout << "Performance / Debug window initalized!";
         {
+            cout << "Reading info...";
             ImGui::Text("%.3f m/s | %.1f FPS", 1000.0f / io.Framerate, io.Framerate);
             // Get and display the operating system version
             // note: NTDDI_WIN11 does not exist as of oct 2023 so we just say it is either 10 or 11
@@ -1303,38 +1473,40 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
             RenderProjectSettingsWindow();
         }
 
+        if (showEditorSettingsWindow) {
+            RenderEditorSettingsWindow();
+        }
+
+        // Render your ImGui content
+        if (ImGui::Begin("Console"))
+            cout << "console window initalized!";
+        {
+            console.Draw("Console"); // Draw the console window
+        }
+
         ImGui::Begin("Project Assets");
         if (ImGui::Button("Add Item to project"))
         {
-            HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED |
-                COINIT_DISABLE_OLE1DDE);
-            if (SUCCEEDED(hr))
-            {
+
+            HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+            if (SUCCEEDED(hr)) {
                 IFileOpenDialog* pFileOpen;
+                hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_ALL, IID_IFileOpenDialog, reinterpret_cast<void**>(&pFileOpen));
 
-                // Create the FileOpenDialog object.
-                hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_ALL,
-                    IID_IFileOpenDialog, reinterpret_cast<void**>(&pFileOpen));
-
-                if (SUCCEEDED(hr))
-                {
-                    // Show the Open dialog box.
+                if (SUCCEEDED(hr)) {
                     hr = pFileOpen->Show(NULL);
 
-                    // Get the file name from the dialog box.
-                    if (SUCCEEDED(hr))
-                    {
+                    if (SUCCEEDED(hr)) {
                         IShellItem* pItem;
                         hr = pFileOpen->GetResult(&pItem);
-                        if (SUCCEEDED(hr))
-                        {
+                        if (SUCCEEDED(hr)) {
                             PWSTR pszFilePath;
                             hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszFilePath);
 
-                            // Display the file name to the user.
-                            if (SUCCEEDED(hr))
-                            {
-                                MessageBoxW(NULL, pszFilePath, L"File Path", MB_OK);
+                            if (SUCCEEDED(hr)) {
+                                // Copy the selected file path
+                                wcscpy_s(selectedFilePath, MAX_PATH, pszFilePath);
+                                projectAssets.push_back(selectedFilePath); // Add to the project assets
                                 CoTaskMemFree(pszFilePath);
                             }
                             pItem->Release();
@@ -1345,31 +1517,62 @@ int WINAPI WinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE /*hPrevInstance*
                 CoUninitialize();
             }
         }
+
+       
+
+
+        /// Display the selected file paths in a grid
+        ImGui::Columns(3, nullptr, false);
+        ImGui::Text("Name");
+        ImGui::NextColumn();
+        ImGui::Text("Path");
+        ImGui::NextColumn();
+        ImGui::Text(""); // Empty header for the third column
+        ImGui::NextColumn();
+
+        for (size_t i = 0; i < projectAssets.size(); ++i) {
+            ImGui::Text("File %zu", i + 1);
+            ImGui::NextColumn();
+            ImGui::Text("%S", projectAssets[i].c_str());
+            ImGui::NextColumn();
+            if (ImGui::Button("Open")) {
+                // Handle opening the file here
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Delete")) {
+                // Handle deleting the file here
+                if (i < projectAssets.size()) {
+                    // Erase the file from the vector
+                    projectAssets.erase(projectAssets.begin() + i);
+                }
+            }
+            ImGui::NextColumn();
+        }
+        ImGui::Columns(1);
+
+
+
+
+
         ImGui::End();
-
-
-
+        cout << "End Gui";
 
         ImGui::Render();
+        cout << "Render Gui";
        // d3d11DeviceContext->OMSetRenderTargets(1, &d3d11FrameBufferView, NULL);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
         
-
-
         d3d11SwapChain->Present(0, 0);
+        cout << "d3d11SwapChain presented with 0, 0.";
 
     }
 
-
-
+    // Cleanup and exit
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
-
-
-
+    cout << "Shutting down ImGui";
+    
     return 0;
-
-
 }
 
